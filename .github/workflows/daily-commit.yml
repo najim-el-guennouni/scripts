@@ -1,5 +1,4 @@
-name: Human Random Commits (Morocco Time)
-
+name: Random Commits
 on:
   schedule:
     - cron: "0 0 * * *" # Daily (logic handles randomness)
