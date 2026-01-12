@@ -1,34 +1,94 @@
-name: Daily Commit
+name: Human Random Commits (Morocco Time)
 
 on:
   schedule:
-    - cron: "0 6 * * *" # Runs every day at 6 AM UTC
+    - cron: "0 0 * * *" # Daily (logic handles randomness)
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   commit:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
 
-      - name: Make a change
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Morocco timezone
         run: |
-          touch log.txt
-          if [ $(wc -l < log.txt) -gt 1000 ]; then
-            echo "Clearing log.txt"
-            echo "$(date) - commit by GitHub Actions" > log.txt
-          else
-            echo "$(date) - commit by GitHub Actions" >> log.txt
+          sudo timedatectl set-timezone Africa/Casablanca
+          date
+
+      - name: Decide if today should commit
+        id: decide
+        run: |
+          WEEK=$(date +%G-%V)
+          WEEK_FILE=".week"
+          COUNT_FILE=".weekly_count"
+
+          if [ ! -f "$WEEK_FILE" ] || [ "$(cat $WEEK_FILE)" != "$WEEK" ]; then
+            echo "$WEEK" > $WEEK_FILE
+            echo "0" > $COUNT_FILE
           fi
 
-      - name: Commit changes
-        continue-on-error: true
+          COUNT=$(cat $COUNT_FILE)
+
+          if [ "$COUNT" -ge 4 ]; then
+            echo "commit=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          chance=$((RANDOM % 100))
+          threshold=$((50 + COUNT * 10))
+
+          if [ "$chance" -lt "$threshold" ]; then
+            echo "commit=true" >> $GITHUB_OUTPUT
+          else
+            echo "commit=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Random Morocco-time delay
+        if: steps.decide.outputs.commit == 'true'
         run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          # Random time between 09:00 and 22:00 Morocco time
+          now_seconds=$(date +%s)
+          start=$(date -d "09:00" +%s)
+          end=$(date -d "22:00" +%s)
+
+          if [ "$now_seconds" -lt "$start" ]; then
+            delay=$((start - now_seconds + RANDOM % (end - start)))
+          else
+            delay=$((RANDOM % (end - now_seconds)))
+          fi
+
+          echo "Sleeping $delay seconds (Morocco time)"
+          sleep $delay
+
+      - name: Make a realistic change
+        id: make
+        if: steps.decide.outputs.commit == 'true'
+        run: |
+          MESSAGES=(
+            "minor cleanup"
+            "small improvement"
+            "adjust logic"
+            "docs tweak"
+            "tiny fix"
+            "refactor a bit"
+          )
+
+          MSG=${MESSAGES[$RANDOM % ${#MESSAGES[@]}]}
+          echo "$(date) - $MSG" >> log.txt
+          echo $(( $(cat .weekly_count) + 1 )) > .weekly_count
+
+          echo "message=$MSG" >> $GITHUB_OUTPUT
+
+      - name: Commit & push
+        if: steps.decide.outputs.commit == 'true'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
           git add .
-          git commit -m "daily commit - $(date)" || echo "nothing to commit"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD:${{ github.ref_name }}
+          git commit -m "${{ steps.make.outputs.message }}"
+          git push
